@@ -1,9 +1,9 @@
 # Agilio OVS Getting Started (CentOS)
 
-##Install Patched Kernel
+## Install Patched Kernel
 
 
-##Prerequisites
+## Prerequisites
 
     yum -y install epel-release
     yum -y install make autoconf automake libtool gcc gcc-c++ libpcap-devel \
@@ -19,7 +19,7 @@
     # guestfish
     yum -y install libguestfs-tools
 
-##Install AOVS
+## Install AOVS
 
     rpm -ivh *.rpm
 
