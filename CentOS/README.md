@@ -578,8 +578,7 @@ rmmod i40e
 ```
 * Configure Media mode
 
-Download QCU app:
-[QCU app](https://github.com/netronome-support/AOVS-Getting-Started/raw/master/CentOS/Intel/QCU.zip)
+Download and extract [QCU configuration utility](https://github.com/netronome-support/AOVS-Getting-Started/raw/master/CentOS/Intel/QCU.zip)
 ```
 QCU:
 #list Intel devices
