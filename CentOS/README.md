@@ -552,7 +552,7 @@ yum install qemu-kvm-ev libvirt libvirt-python libguestfs-tools virt-install
 
 service libvirtd restart
 
-# Kernel - OVS
+# Kernel - OVS(Intel)
 
 * Install Intel driver
 ```
