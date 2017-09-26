@@ -552,5 +552,91 @@ yum install qemu-kvm-ev libvirt libvirt-python libguestfs-tools virt-install
 
 service libvirtd restart
 
+#Kernel - OVS
+
+* Install Intel driver
+```
+default_f_driver_version=2.0.23
+source_flag=0
+
+f_driver_version=$default_f_driver_version
+
+rm -rf /usr/local/src/i40e
+wget https://sourceforge.net/projects/e1000/files/i40e%20stable/$f_driver_version/i40e-$f_driver_version.tar.gz -P /usr/local/src/i40e
+cd /usr/local/src/i40e
+
+rm -rf i40e-$f_driver_version
+tar xf i40e-$f_driver_version.tar.gz
+cd i40e-$f_driver_version/src
+make install
+rmmod i40e
+```
+* Configure Media mode
+```
+QCU:
+#list Intel devices
+./qcu64e /DEVICES
+./qcu64e /NIC=1 /INFO
+#configure port(s)
+./qcu64e /NIC=1 /SET 4x10
+
+Reboot
+
+``` 
+
+* Create Intel VFs
+```
+echo 4 > /sys/bus/pci/devices/0000\:08\:00.0/sriov_numvfs
+
+```
+
+* Add interfaces to bridge
+```
+BRIDGE=br0
+PORT=ens3f0
+
+# Delete all bridges
+for br in $(ovs-vsctl list-br);
+do
+  ovs-vsctl --if-exists del-br $br
+done
+
+# Create a new bridge
+ovs-vsctl add-br $BRIDGE
+ovs-vsctl add-port $BRIDGE $PORT -- set interface $PORT ofport_request=1
+
+ovs-vsctl show
+
+```
+
+
+* Add interface to Guest XML
+```
+VM_NAME=vm1
+BRIDGE=br0
+
+cat > /tmp/interface << EOL
+<interface type='bridge'>
+    <source bridge='$BRIDGE'/><virtualport type='openvswitch'/>
+    <model type='virtio'/>
+    <address type='pci' domain='0x0000' bus='0x01' slot='0xa' function='0x1'/>
+</interface>
+EOL
+
+virsh attach-device $VM_NAME /tmp/interface --config
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
 
 ---
