@@ -529,7 +529,7 @@ EDITOR='sed -i "/<domain/a \<cpu mode=\"host-model\"><model fallback=\"allow\"\/
 </interface>
 ```
 
-##Access VM
+## Access VM
 
 * Boot VM and SSH in
 ```
@@ -552,7 +552,7 @@ yum install qemu-kvm-ev libvirt libvirt-python libguestfs-tools virt-install
 
 service libvirtd restart
 
-#Kernel - OVS
+# Kernel - OVS
 
 * Install Intel driver
 ```
