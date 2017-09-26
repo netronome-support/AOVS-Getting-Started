@@ -97,7 +97,7 @@ Enabling remote OVSDB managers                             [  OK  ]
 
 ```
 
-* Display status of running AOVS
+* Display status of running AOVS(SRIOV)
 ```
 CMD:
 ovs-ctl status
@@ -217,7 +217,7 @@ cat /proc/cmdline
 
 ## SRIOV(vfio-pci)
 
-* Bind vfio-pci to interface(s)
+* Bind vfio-pci driver
 ```
 PCIA="$(ethtool -i nfp_v0.41 | grep bus | cut -d ' ' -f 5)"
 PCIB="$(ethtool -i nfp_v0.42 | grep bus | cut -d ' ' -f 5)"
@@ -242,6 +242,38 @@ $DPDK_DEVBIND --bind $driver $PCIB
 
 echo $DPDK_DEVBIND --status
 $DPDK_DEVBIND --status | grep "$PCIA\|$PCIB"
+```
+* Add interfaces to bridge
+```
+BRIDGE=br0
+
+# Delete all bridges
+for br in $(ovs-vsctl list-br);
+do
+  ovs-vsctl --if-exists del-br $br
+done
+
+# Create a new bridge
+ovs-vsctl add-br $BRIDGE
+
+ovs-vsctl add-port $BRIDGE nfp_p0 -- set interface nfp_p0 ofport_request=1
+
+# Add VF ports
+ovs-vsctl add-port $BRIDGE nfp_v0.41 -- set interface nfp_v0.41 ofport_request=41
+ovs-vsctl add-port $BRIDGE nfp_v0.42 -- set interface nfp_v0.42 ofport_request=42
+
+#Add NORMAL RULE
+ovs-ofctl del-flows br0
+ovs-ofctl -O OpenFlow13 add-flow $BRIDGE actions=NORMAL
+
+
+ovs-vsctl set Open_vSwitch . other_config:max-idle=300000
+ovs-vsctl set Open_vSwitch . other_config:flow-limit=1000000
+ovs-appctl upcall/set-flow-limit 1000000
+
+ovs-vsctl show
+ovs-ofctl show $BRIDGE
+ovs-ofctl dump-flows $BRIDGE
 
 ```
 * Add interface to Guest XML
@@ -283,8 +315,242 @@ make install
 
 ## XVIO AKA Virtio-relay(igb_uio)
 
+* Enable hugepages
+```
+nr_hugepages=4194
+
+cat /proc/mounts | grep hugetlbfs
+
+umount /mnt/aovs-huge-2M
+
+printCol 7 "Setting 2M"
+grep hugetlbfs /proc/mounts | grep -q "pagesize=2M" || \
+( mkdir -p /mnt/huge && mount nodev -t hugetlbfs -o rw,pagesize=2M /mnt/huge/ )
+
+printCol 7 "Setting 1G"
+grep hugetlbfs /proc/mounts | grep -q "pagesize=1G" || \
+( mkdir -p /mnt/huge-1G && mount nodev -t hugetlbfs -o rw,pagesize=1G /mnt/huge-1G/ )
+
+printCol 7 "/proc/mounts | grep hugetlbfs"
+cat /proc/mounts | grep hugetlbfs
+
+printCol 7 "libvirt folders"
+mkdir -p /mnt/huge-1G/libvirt
+mkdir -p /mnt/huge/libvirt
+
+    chown qemu:qemu -R /mnt/huge-1G/libvirt || exit -1
+    chown qemu:qemu -R /mnt/huge/libvirt || exit -1
+    service libvirtd restart || exit -1
+    echo $nr_hugepages > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+```
+* Set permissions
+```
+sestatus
+setenforce 0
+sestatus | grep permissive
+#make persistent
+sed -E 's/(SELINUX=).*/\1disabled/g' -i /etc/sysconfig/selinux
+```
+
+* Configure AOVS
+```
+XVIO_CPU_COUNT=2
+
+echo "CURRENT configuration"
+cat /etc/netronome.conf
+
+card_node=$(cat /sys/bus/pci/drivers/nfp/0*/numa_node | head -n1 | cut -d " " -f1)
+nfp_cpu_list=$(lscpu -a -p | awk -F',' -v var="$card_node" '$4 == var {printf "%s%s",sep,$1; sep=" "} END{print ""}')
+xvio_cpus_list=()
+nfp_cpu_list=( $nfp_cpu_list )
+
+for counter in $(seq 0 $((XVIO_CPU_COUNT-1)))
+  do
+        xvio_cpus_list+=( "${nfp_cpu_list[$counter+1]}" )
+done
+
+for counter in $(seq 0 $((XVIO_CPU_COUNT-1)))
+  do
+        nfp_cpu_list=( "${nfp_cpu_list[@]:1}" )
+done
+
+xvio_cpus_string=$(IFS=',';echo "${xvio_cpus_list[*]}";IFS=$' \t\n')
+
+cat > /etc/netronome.conf << EOF
+SDN_VIRTIORELAY_ENABLE=y
+SDN_VIRTIORELAY_PARAM="--cpus=$xvio_cpus_string --enable-tso --enable-mrgbuf --vhost-username=qemu --vhost-groupname=kvm --huge-dir=/mnt/huge --ovsdb-sock=/var/run/openvswitch/db.sock"
+SDN_FIREWALL=n
+EOF
+
+echo "NEW configuration"
+cat /etc/netronome.conf
+
+ovs-ctl status
+ovs-ctl stop
+ovs-ctl start
+ovs-ctl status
 
 
+```
+
+* Launch AOVS
+```
+ovs-ctl start
+
+#display status
+CMD:
+ovs-ctl status
+
+OUTPUT:
+SDN Health Report:
+------------------
+Userspace Process: ovsdb-server              ... [PASS]
+Userspace Process: ovs-vswitchd              ... [PASS]
+Userspace Process: virtiorelayd              ... [PASS]
+Kernel Module: nfp                           ... [PASS]
+Kernel Module: nfp_cmsg                      ... [PASS]
+Kernel Module: nfp_fallback                  ... [PASS]
+Kernel Module: nfp_offloads                  ... [PASS]
+Kernel Module: nfp_conntrack                 ... [SKIPPED]
+Kernel Module: openvswitch                   ... [PASS]
+NFP: Firmware Loaded                         ... [PASS]
+NFP: Flow Processing Cores Responsive        ... [PASS]
+NFP: Control Message Channel Responsive      ... [PASS]
+NFP: Fallback Traffic Divert Disabled        ... [PASS]
+NFP: Ingress NBI Backed Up                   ... [PASS]
+NFP: Card Detected                           ... [PASS]
+NFP: ECC Errors                              ... [PASS]
+NFP: Parity Errors                           ... [PASS]
+NFP: Configurator Version                    ... [PASS]
+NFP: PCIe Gen3x8                             ... [PASS]
+```
+
+* Bind igb driver
+```
+PCIA="$(ethtool -i nfp_v0.39 | grep bus | cut -d ' ' -f 5)"
+PCIB="$(ethtool -i nfp_v0.40 | grep bus | cut -d ' ' -f 5)"
+
+interface_list=($PCIA $PCIB)
+driver=igb_uio
+mp=uio
+# updatedb
+DPDK_DEVBIND=$(find /opt/ -iname dpdk-devbind.py | head -1)
+DRKO=$(find /opt/ -iname 'igb_uio.ko' | head -1 )
+echo "loading driver"
+modprobe $mp
+insmod $DRKO
+echo "DPDK_DEVBIND: $DPDK_DEVBIND"
+for interface in ${interface_list[@]};
+do
+  echo $DPDK_DEVBIND --bind $driver $interface
+  $DPDK_DEVBIND --bind $driver $interface
+done
+echo $DPDK_DEVBIND --status
+$DPDK_DEVBIND --status | grep "$PCIA\|$PCIB"
+```
+
+* Add interfaces to bridge
+```
+BRIDGE=br0
+
+# Delete all bridges
+for br in $(ovs-vsctl list-br);
+do
+  ovs-vsctl --if-exists del-br $br
+done
+
+# Create a new bridge
+ovs-vsctl add-br $BRIDGE
+
+ovs-vsctl add-port $BRIDGE nfp_p0 -- set interface nfp_p0 ofport_request=1
+
+#Add VF's
+ovs-vsctl add-port $BRIDGE nfp_v0.39 -- set interface nfp_v0.39 ofport_request=39 external_ids:virtio_relay=39
+ovs-vsctl add-port $BRIDGE nfp_v0.40 -- set interface nfp_v0.40 ofport_request=40 external_ids:virtio_relay=40
+
+ovs-ofctl del-flows $BRIDGE
+
+ovs-ofctl -O OpenFlow13 add-flow $BRIDGE actions=NORMAL
+
+ovs-vsctl set Open_vSwitch . other_config:max-idle=300000
+ovs-vsctl set Open_vSwitch . other_config:flow-limit=1000000
+ovs-appctl upcall/set-flow-limit 1000000
+
+ovs-vsctl show
+ovs-ofctl show $BRIDGE
+ovs-ofctl dump-flows $BRIDGE
+
+```
+
+
+* Add interface to Guest XML
+```
+VM_NAME=vm1
+VM_CPU=4
+max_memory=$(virsh dominfo $VM_NAME | grep 'Max memory:' | awk '{print $3}')
+
+# Remove vhostuser interface
+EDITOR='sed -i "/<interface type=.vhostuser.>/,/<\/interface>/d"' virsh edit $VM_NAME
+EDITOR='sed -i "/<hostdev mode=.subsystem. type=.pci./,/<\/hostdev>/d"' virsh edit $VM_NAME
+
+# Add vhostuser interfaces
+# nfp_v0.40 --> 0000:81:0d.0
+# nfp_v0.41 --> 0000:81:0d.1
+
+bus=$(ethtool -i nfp_v0.42 | grep bus-info | awk '{print $5}' | awk -F ':' '{print $2}')
+# Add vhostuser interfaces
+EDITOR='sed -i "/<devices/a \<interface type=\"vhostuser\">  <source type=\"unix\" path=\"/tmp/virtiorelay39.sock\" mode=\"client\"\/>  <model type=\"virtio\"/>  <driver name=\"vhost\" queues=\"1\"\/>  <address type=\"pci\" domain=\"0x0000\" bus=\"0x01\" slot=\"0x0a\" function=\"0x0\"\/><\/interface>"' virsh edit $VM_NAME
+EDITOR='sed -i "/<devices/a \<interface type=\"vhostuser\">  <source type=\"unix\" path=\"/tmp/virtiorelay40.sock\" mode=\"client\"\/>  <model type=\"virtio\"/>  <driver name=\"vhost\" queues=\"1\"\/>  <address type=\"pci\" domain=\"0x0000\" bus=\"0x01\" slot=\"0x0b\" function=\"0x0\"\/><\/interface>"' virsh edit $VM_NAME
+
+EDITOR='sed -i "/<numa>/,/<\/numa>/d"' virsh edit $VM_NAME
+EDITOR='sed -i "/vcpu/d"' virsh edit $VM_NAME
+EDITOR='sed -i "/<cpu/,/<\/cpu>/d"' virsh edit $VM_NAME
+EDITOR='sed -i "/<memoryBacking>/,/<\/memoryBacking>/d"' virsh edit $VM_NAME
+
+virsh setvcpus $VM_NAME $VM_CPU --config --maximum
+virsh setvcpus $VM_NAME $VM_CPU --config
+# MemoryBacking
+EDITOR='sed -i "/<domain/a \<memoryBacking><hugepages><page size=\"2048\" unit=\"KiB\" nodeset=\"0\"\/><\/hugepages><\/memoryBacking>"' virsh edit $VM_NAME
+#EDITOR='sed -i "/<domain/a \<memoryBacking><hugepages><page size=\"2048\" unit=\"KiB\"/hugepages><\/memoryBacking>"' virsh edit $VM_NAME
+# CPU
+echo max_memory: $max_memory
+echo VM_CPU: $VM_CPU
+EDITOR='sed -i "/<domain/a \<cpu mode=\"host-model\"><model fallback=\"allow\"\/><numa><cell id=\"0\" cpus=\"0-'$((VM_CPU-1))'\" memory=\"'${max_memory}'\" unit=\"KiB\" memAccess=\"shared\"\/><\/numa><\/cpu>"' virsh edit $VM_NAME
+
+```
+
+>XML interface example:
+```
+<interface type='vhostuser'>
+  <mac address='ba:5c:ba:2a:5d:2e'/>
+  <source type='unix' path='/tmp/virtiorelay0.sock' mode='client'/>
+  <model type='virtio'/>
+  <address type='pci' domain='0x0000' bus='0x00' slot='0x10' function='0x0'/>
+</interface>
+```
+
+##Access VM
+
+* Boot VM and SSH in
+```
+VM_NAME=vm1
+virsh start $VM_NAME
+ssh root@$(virsh net-dhcp-leases default | awk '/'"$VM_NAME"'/ {print $5}' | cut -d"/" -f1)
+```
+
+>**NOTE:** "error: unsupported configuration: huge pages per NUMA node are not supported with this QEMU" indicates you need to upgrade QEMU:
+```
+virsh version
+Compiled against library: libvirt 3.2.0
+Using library: libvirt 3.2.0
+Using API: QEMU 3.2.0
+Running hypervisor: QEMU 2.0.0
+
+```
+yum install centos-release-qemu-ev.noarch
+yum install qemu-kvm-ev libvirt libvirt-python libguestfs-tools virt-install
+
+service libvirtd restart
 
 
 ---
