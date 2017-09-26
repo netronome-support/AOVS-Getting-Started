@@ -1,3 +1,4 @@
+
 # Agilio OVS 2.6B Getting Started (CentOS)
 
 ## Install Patched Kernel
@@ -10,6 +11,7 @@ rpm -i kernel*.rpm
 ```
 CMD:
 setpci -d 19ee:4000 0xFFC.L
+
 Expected output:
 ffffffff
 ```
@@ -130,4 +132,18 @@ ovs-vswitchd is running with pid 10156
 
 ```
 
+## Create VM
 
+* Use [these](https://github.com/netronome-support/IVG/tree/master/aovs_2.6B/vm_creator/ubuntu) scripts to create a VM.
+
+1) Clone/Download the entire directory
+
+2) Run _**x_create_backing_image.sh**_ to create backing image(Do this only **once**)
+
+3) Run _**y_create_vm_from_backing.sh**_ to create VMs
+
+
+
+
+
+---
