@@ -1,6 +1,11 @@
 
 # Agilio OVS 2.6B Getting Started (CentOS 7.4)
 
+## Clone IVG
+```
+git clone https://github.com/netronome-support/IVG.git
+```
+
 ## Install Patched Kernel
 * Install patched kernel packages supplied on [Netronome Support Site](https://support.netronome.com)
 ```
