@@ -1,5 +1,5 @@
 
-# Agilio OVS 2.6B Getting Started (CentOS)
+# Agilio OVS 2.6B Getting Started (CentOS 7.4)
 
 ## Install Patched Kernel
 * Install patched kernel packages supplied on [Netronome Support Site](https://support.netronome.com)
@@ -260,13 +260,24 @@ EDITOR='sed -i "/<devices/a \<hostdev mode=\"subsystem\" type=\"pci\" managed=\"
 </hostdev>
 
 ```
-
-## Update VM kernel
-
+* Boot VM and SSH in
+```
+VM_NAME=vm1
+virsh start $VM_NAME
+ssh root@$(virsh net-dhcp-leases default | awk '/'"$VM_NAME"'/ {print $5}' | cut -d"/" -f1)
+```
+* Upgrade VM kernel
+```
+wget http://kernel.ubuntu.com/~kernel-ppa/mainline/v4.13/linux-headers-4.13.0-041300_4.13.0-041300.201709031731_all.deb
+wget http://kernel.ubuntu.com/~kernel-ppa/mainline/v4.13/linux-image-4.13.0-041300-generic_4.13.0-041300.201709031731_amd64.deb
+wget http://kernel.ubuntu.com/~kernel-ppa/mainline/v4.13/linux-headers-4.13.0-041300-generic_4.13.0-041300.201709031731_amd64.deb
+```
 
 git clone https://github.com/Netronome/nfp-drv-kmods
 cd nfp-drv-kmods
 make install
+
+
 
 
 
