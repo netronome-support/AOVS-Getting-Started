@@ -2,7 +2,7 @@
 # Agilio OVS 2.6B Getting Started (CentOS)
 
 ## Install Patched Kernel
-* Install kernel packages supplied on [Netronome Support Site](https://support.netronome.com)
+* Install patched kernel packages supplied on [Netronome Support Site](https://support.netronome.com)
 ```
 rpm -i kernel*.rpm
 ```
@@ -132,15 +132,145 @@ ovs-vswitchd is running with pid 10156
 
 ```
 
+## Host driver(nfp)
+* Bind driver and configure interface
+```
+#Locate the dpdk-devbind.py script
+updatedb
+DPDK_DEVBIND=$(find /opt/netronome/ -iname dpdk-devbind.py)
+
+#Grab the PCI address of VF nfp_v0.1
+PCIA="$(ethtool -i nfp_v0.1 | grep bus | cut -d ' ' -f 5)"
+
+  #Bind the VF to nfp_netvf
+  echo $DPDK_DEVBIND --bind nfp $PCIA
+  $DPDK_DEVBIND --bind nfp $PCIA
+
+  echo $DPDK_DEVBIND --status
+  $DPDK_DEVBIND --status | grep $PCIA
+
+#Get netdev name
+ETH=$($DPDK_DEVBIND --status | grep $PCIA | cut -d ' ' -f 4 | cut -d '=' -f 2)
+
+#Assign IP to netdev and up the interface
+ip a add 10.0.0.1/24 dev $ETH
+ip link set dev $ETH up
+```
+
+* Add interfaces to bridge
+```
+BRIDGE=br0
+
+# Delete all existing bridges
+for br in $(ovs-vsctl list-br);
+do
+  ovs-vsctl --if-exists del-br $br
+done
+
+# Create a new bridge
+ovs-vsctl add-br $BRIDGE
+
+# Add physical ports
+ovs-vsctl add-port $BRIDGE nfp_p0 -- set interface nfp_p0 ofport_request=1
+
+# Add VF ports
+ovs-vsctl add-port $BRIDGE nfp_v0.1 -- set interface nfp_v0.1 ofport_request=1
+
+ovs-vsctl set Open_vSwitch . other_config:max-idle=300000
+ovs-vsctl set Open_vSwitch . other_config:flow-limit=1000000
+ovs-appctl upcall/set-flow-limit 1000000
+
+ovs-vsctl show
+ovs-ofctl show $BRIDGE
+ovs-ofctl dump-flows $BRIDGE
+```
+
 ## Create VM
 
 * Use [these](https://github.com/netronome-support/IVG/tree/master/aovs_2.6B/vm_creator/ubuntu) scripts to create a VM.
 
-1) Clone/Download the entire directory
+   1) Clone/Download the entire directory
 
-2) Run _**x_create_backing_image.sh**_ to create backing image(Do this only **once**)
+   2) Run _**x_create_backing_image.sh**_ to create backing image(Do this only **once**)
 
-3) Run _**y_create_vm_from_backing.sh**_ to create VMs
+   3) Run _**y_create_vm_from_backing.sh**_ to create VMs
+
+## Configure GRUB
+
+* Add kernel parameters
+
+   vi /etc/default/grub
+```
+GRUB_CMDLINE_LINUX_DEFAULT="intel_iommu=on iommu=pt intremap=on default_hugepagesz=2M hugepagesz=2M hugepages=2048 isolcpus=2-27,30-55 intel_idle.max_cstate=0 processor.max_cstate=0 idle=mwait intel_pstate=disable"
+```
+
+* Apply changes
+```
+grub2-mkconfig -o /boot/grub2/grub.cfg
+reboot
+```
+
+* Confirm applied changes
+```
+cat /proc/cmdline
+```
+
+## SRIOV(vfio-pci)
+
+* Bind vfio-pci to interface(s)
+```
+PCIA="$(ethtool -i nfp_v0.41 | grep bus | cut -d ' ' -f 5)"
+PCIB="$(ethtool -i nfp_v0.42 | grep bus | cut -d ' ' -f 5)"
+
+# Bind VF's using vfio-pci driver
+driver=vfio-pci
+
+DPDK_DEVBIND=$(find /opt/netronome -iname dpdk-devbind.py | head -1)
+if [ "$DPDK_DEVBIND" == "" ]; then
+  echo "ERROR: could not find dpdk-devbind.py tool"
+  exit -1
+fi
+
+echo "loading driver"
+modprobe $driver
+echo "DPDK_DEVBIND: $DPDK_DEVBIND"
+echo $DPDK_DEVBIND --bind $driver $PCIA
+$DPDK_DEVBIND --bind $driver $PCIA
+
+echo $DPDK_DEVBIND --bind $driver $PCIB
+$DPDK_DEVBIND --bind $driver $PCIB
+
+echo $DPDK_DEVBIND --status
+$DPDK_DEVBIND --status | grep "$PCIA\|$PCIB"
+
+```
+* Add interface to Guest XML
+```
+VM_NAME=vm1
+bus=$(ethtool -i nfp_v0.42 | grep bus-info | awk '{print $5}' | awk -F ':' '{print $2}')
+EDITOR='sed -i "/<devices/a \<hostdev mode=\"subsystem\" type=\"pci\" managed=\"yes\">  <source> <address domain=\"0x0000\" bus=\"0x'${bus}'\" slot=\"0x0d\" function=\"0x1\"\/> <\/source>  <address type=\"pci\" domain=\"0x0000\" bus=\"0x00\" slot=\"0x0a\" function=\"0x0\"\/> <\/hostdev>"' virsh edit $VM_NAME
+```
+>XML interface example:
+```
+<hostdev mode='subsystem' type='pci' managed='yes'>
+  <source>
+    <address domain='0x0000' bus='0x05' slot='0x08' function='0x0'/>
+  </source>
+  <address type='pci' domain='0x0000' bus='0x00' slot='0x06' function='0x0'/>
+</hostdev>
+
+```
+
+## Update VM kernel
+
+
+git clone https://github.com/Netronome/nfp-drv-kmods
+cd nfp-drv-kmods
+make install
+
+
+
+## XVIO AKA Virtio-relay(igb_uio)
 
 
 
