@@ -22,7 +22,6 @@ ffffffff
 ```
 
 ## Prerequisites
-
     yum -y install epel-release
     yum -y install make autoconf automake libtool gcc gcc-c++ libpcap-devel \
     readline-devel jansson-devel libevent libevent-devel libtool openssl-devel \
@@ -34,7 +33,7 @@ ffffffff
     protobuf-c-devel python-six numactl-libs python-ethtool kvm qemu-kvm \
     python-virtinst libvirt libvirt-python virt-manager libguestfs-tools \
     cloud-utils virt-install lvm2 wget git net-tools libguestfs-tools
-
+    
 ## Install AOVS
 
 * Install packages
